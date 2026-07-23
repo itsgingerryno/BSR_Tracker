@@ -1,0 +1,36 @@
+name: Track Amazon BSR
+
+on:
+  schedule:
+    # Runs once a day at 09:00 UTC. Adjust as needed.
+    - cron: "0 9 * * *"
+  workflow_dispatch: {}  # lets you trigger a run manually from the Actions tab
+
+permissions:
+  contents: write  # needed so the workflow can commit bsr_history.csv back to the repo
+
+jobs:
+  track-bsr:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install requests beautifulsoup4
+
+      - name: Run BSR tracker
+        run: python3 track_bsr.py
+
+      - name: Commit updated history
+        run: |
+          git config user.name "bsr-tracker-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add bsr_history.csv
+          git diff --staged --quiet || git commit -m "Update BSR history $(date -u +'%Y-%m-%d')"
+          git push
