@@ -103,6 +103,28 @@ def parse_bsr(html: str):
     return ranks
 
 
+def looks_blocked(html: str) -> bool:
+    """Heuristic check for Amazon's bot-detection / CAPTCHA page."""
+    markers = [
+        "Sorry, we just need to make sure you're not a robot",
+        "Enter the characters you see below",
+        "api-services-support@amazon.com",
+        "To discuss automated access to Amazon data",
+    ]
+    return any(marker.lower() in html.lower() for marker in markers)
+
+
+def save_debug_html(asin: str, html: str):
+    """Save the raw HTML we received, so a failed parse can be inspected."""
+    debug_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "debug")
+    os.makedirs(debug_dir, exist_ok=True)
+    timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    path = os.path.join(debug_dir, f"{asin}_{timestamp}.html")
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(html)
+    return path
+
+
 def append_to_history(asin: str, ranks, error: str = None):
     file_exists = os.path.isfile(HISTORY_FILE)
     timestamp = datetime.now(timezone.utc).isoformat(timespec="seconds")
@@ -129,13 +151,22 @@ def track_all():
         print(f"Checking {asin}...")
         try:
             html = fetch_product_page(asin)
+
+            if looks_blocked(html):
+                debug_path = save_debug_html(asin, html)
+                print(f"  Amazon appears to have served a bot-check/CAPTCHA page. "
+                      f"Saved response to {debug_path} for inspection.")
+                append_to_history(asin, [], error="Blocked by Amazon bot-detection (CAPTCHA/robot check)")
+                continue
+
             ranks = parse_bsr(html)
             if ranks:
                 for r in ranks:
                     print(f"  #{r['rank']:,} in {r['category']}")
             else:
-                print("  No BSR found — Amazon may have changed its page layout, "
-                      "or the request may have been blocked/CAPTCHA'd.")
+                debug_path = save_debug_html(asin, html)
+                print(f"  No BSR found — page layout may have changed. "
+                      f"Saved response to {debug_path} for inspection.")
             append_to_history(asin, ranks)
         except requests.RequestException as e:
             print(f"  Request failed: {e}")
